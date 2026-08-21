@@ -96,6 +96,11 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('marks its root as the desktop workspace drop target', () => {
+    mount()
+    expect(document.querySelector('[data-dsh-workspace-drop-target]')).toBeTruthy()
+  })
+
   it('workspace hover card shows a POSIX home descendant as ~', () => {
     vi.useFakeTimers()
     try {

@@ -8,6 +8,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
+import type { BrowseFlowInjected } from '../src/client/flow.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
@@ -15,7 +16,12 @@ import { apply as nodeApply } from '../src/index.ts'
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.history.replaceState({}, '', '/')
+  delete window.__DSH_DESKTOP_PICK_DIRECTORY__
+  delete window.__DSH_DESKTOP_VALIDATE_DIRECTORY__
+})
 
 const HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
 
@@ -186,6 +192,21 @@ describe('directory-picker-browse client half', () => {
     await expect(injected.createDirectory(HOME, 'fresh')).resolves.toBe(`${HOME}/fresh`)
     expect(b.listDirectory).toHaveBeenCalledOnce()
     expect(b.createDirectory).toHaveBeenCalledWith(HOME, 'fresh')
+  })
+
+  it('adapts the Windows desktop picker globals into optional flow callbacks', async () => {
+    window.history.replaceState({}, '', '/?dsh-desktop-platform=win32')
+    window.__DSH_DESKTOP_PICK_DIRECTORY__ = vi.fn(async () => '/picked')
+    window.__DSH_DESKTOP_VALIDATE_DIRECTORY__ = vi.fn(async path => path === '/picked')
+    const b = await bench()
+    b.declare()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries(HOLES[0])[0]!
+    const injected = (entry.inject as unknown as () => BrowseFlowInjected)()
+    expect(injected.pickNativeDirectory).toBeTypeOf('function')
+    expect(injected.validateDirectory).toBeTypeOf('function')
+    await expect(injected.pickNativeDirectory!()).resolves.toBe('/picked')
+    await expect(injected.validateDirectory!('/picked')).resolves.toBe(true)
   })
 
   it('adapts the owner conversation onto the dialog: confirm picks, dismissal cancels', async () => {

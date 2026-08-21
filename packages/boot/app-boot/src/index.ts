@@ -326,6 +326,7 @@ function parsePatchList(
   } catch (error) {
     throw new Error(`${binName}: failed to parse ${label} ${file}: ${String(error)}`)
   }
+  if (parsed === undefined || parsed === null) return []
   if (!Array.isArray(parsed)) {
     throw new Error(`${binName}: ${label} ${file} must be a top-level YAML array of loader patch entries`)
   }

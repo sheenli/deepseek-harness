@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
-import { PROCESS_INFORMATION, getTempPath } from '../src/ffi.ts'
+import { PROCESS_INFORMATION, STARTUPINFOW, getTempPath } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { Win32Error } from '../src/errors.ts'
 import { drainPipe, spawnSandboxed, spawnSandboxedInherited, waitForExit } from '../src/spawn.ts'
@@ -16,9 +16,17 @@ import * as abi from '../src/win32-abi.ts'
 
 const PVOID = koffi.pointer('void')
 
+interface FailureApi {
+  api: Win32Bindings
+  closed: bigint[]
+  closeHandle: ReturnType<typeof vi.fn>
+  startup: { dwFlags: number; wShowWindow: number }[]
+}
+
 /** The stub the CreateProcessAsUserW failure branch needs: pipes "succeed", the spawn fails with Win32 5. */
-function pipeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle: ReturnType<typeof vi.fn> } {
+function pipeFailureApi(): FailureApi {
   const closed: bigint[] = []
+  const startup: { dwFlags: number; wShowWindow: number }[] = []
   let next = 1n
   const closeHandle = vi.fn((handle: NativePtr) => {
     closed.push(handle)
@@ -31,17 +39,24 @@ function pipeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle: 
       return 1
     }),
     setHandleInformation: vi.fn(() => 1),
-    createProcessAsUserW: vi.fn(() => 0),
+    createProcessAsUserW: vi.fn((
+      _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
+      _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, startupInfo: NativePtr,
+    ) => {
+      startup.push(koffi.decode(startupInfo, STARTUPINFOW) as { dwFlags: number; wShowWindow: number })
+      return 0
+    }),
     getLastError: vi.fn(() => 5), // ERROR_ACCESS_DENIED: the failure the branch reports
     closeHandle,
     formatMessageW: vi.fn(() => 0),
   } as unknown as Win32Bindings
-  return { api, closed, closeHandle }
+  return { api, closed, closeHandle, startup }
 }
 
 /** The stub the ResumeThread failure branch needs: everything succeeds until ResumeThread returns 0xFFFFFFFF. */
-function resumeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle: ReturnType<typeof vi.fn> } {
+function resumeFailureApi(): FailureApi {
   const closed: bigint[] = []
+  const startup: { dwFlags: number; wShowWindow: number }[] = []
   let std = 50n
   const closeHandle = vi.fn((handle: NativePtr) => {
     closed.push(handle)
@@ -54,8 +69,9 @@ function resumeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle
     setHandleInformation: vi.fn(() => 1),
     createProcessAsUserW: vi.fn((
       _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
-      _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
+      _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, startupInfo: NativePtr, processInfo: NativePtr,
     ) => {
+      startup.push(koffi.decode(startupInfo, STARTUPINFOW) as { dwFlags: number; wShowWindow: number })
       koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
       return 1
     }),
@@ -65,7 +81,7 @@ function resumeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle
     closeHandle,
     formatMessageW: vi.fn(() => 0),
   } as unknown as Win32Bindings
-  return { api, closed, closeHandle }
+  return { api, closed, closeHandle, startup }
 }
 
 describe('spawn failure paths close their handles', () => {
@@ -73,7 +89,7 @@ describe('spawn failure paths close their handles', () => {
   const token = 1n as NativePtr
 
   it('spawnSandboxed closes all six pipe handles before throwing when CreateProcessAsUserW fails', () => {
-    const { api, closed, closeHandle } = pipeFailureApi()
+    const { api, closed, closeHandle, startup } = pipeFailureApi()
     let caught: unknown
     try {
       spawnSandboxed(api, token, { command: 'probe.exe', args: [], cwd: 'C:\\' })
@@ -85,10 +101,11 @@ describe('spawn failure paths close their handles', () => {
     expect((caught as Win32Error).win32Code).toBe(5)
     expect(closeHandle).toHaveBeenCalledTimes(6)
     expect(closed).toEqual([1n, 2n, 3n, 4n, 5n, 6n])
+    expect(startup).toMatchObject([{ dwFlags: abi.STARTF_USESTDHANDLES | abi.STARTF_USESHOWWINDOW, wShowWindow: abi.SW_HIDE }])
   })
 
   it('spawnSandboxedInherited closes thread, process, and kill-on-close job before throwing when ResumeThread fails', () => {
-    const { api, closed, closeHandle } = resumeFailureApi()
+    const { api, closed, closeHandle, startup } = resumeFailureApi()
     let caught: unknown
     try {
       spawnSandboxedInherited(api, token, { command: 'probe.exe', args: [], cwd: 'C:\\' })
@@ -102,6 +119,7 @@ describe('spawn failure paths close their handles', () => {
     // suspended child dies instead of hanging until this process exits.
     expect(closeHandle).toHaveBeenCalledTimes(3)
     expect(closed).toEqual([201n, 200n, 100n])
+    expect(startup).toMatchObject([{ dwFlags: abi.STARTF_USESTDHANDLES | abi.STARTF_USESHOWWINDOW, wShowWindow: abi.SW_HIDE }])
   })
 
   it('spawnSandboxedInherited TERMINATES the suspended child before closing handles when AssignProcessToJobObject fails', () => {

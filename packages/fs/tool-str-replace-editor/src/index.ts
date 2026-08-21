@@ -223,9 +223,6 @@ async function viewPath(
   const target = await resolveTarget(ctx, path, exec.signal)
   const info = await statExisting(ctx, target, 'view', exec)
   if (info.type === 'directory') {
-    if (viewRange !== undefined) {
-      throw new Error('The `view_range` parameter is not allowed when `path` points to a directory.')
-    }
     return listDirectory(ctx, target, maxOutputChars, exec)
   }
   if (info.type !== 'file') {
@@ -463,7 +460,7 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
     async execute(args, exec) {
       switch (args.command) {
         case 'view':
-          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, exec)
+          return viewPath(ctx, args.path, args.view_range?.length === 0 ? undefined : args.view_range, config.maxOutputChars, exec)
         case 'create':
           return createFile(ctx, policy, args.path, args.file_text, exec)
         case 'str_replace':

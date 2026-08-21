@@ -405,7 +405,6 @@ describe('tool-str-replace-editor', () => {
       { command: 'view', path: ambiguous, view_range: [1.5, 2] },
       { command: 'view', path: threeLines, view_range: [1, 99] },
       { command: 'view', path: threeLines, view_range: [2, 1] },
-      { command: 'view', path: directory, view_range: [1, 1] },
       { command: 'create', path: join(root, 'new.txt') },
       { command: 'create', path: ambiguous, file_text: 'overwrite' },
       { command: 'str_replace', path: ambiguous, new_str: 'x' },
@@ -438,6 +437,18 @@ describe('tool-str-replace-editor', () => {
       insert_line: 0,
       new_str: 'x',
     })).error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
+  })
+
+  it('lists directories even when a caller supplies an irrelevant view_range', async () => {
+    const { ctx, root, owner } = await setup()
+    const directory = join(root, 'directory')
+    await mkdir(directory)
+    await writeFile(join(directory, 'child.txt'), 'child')
+    for (const view_range of [[], [1, -1], [1, 1]]) {
+      const result = await call(ctx, owner, { command: 'view', path: directory, view_range })
+      expect(result.isError).toBe(false)
+      expect(text(result)).toContain('child.txt')
+    }
   })
 
   it('delegates read-before-edit decisions to fs-observation-policy', async () => {

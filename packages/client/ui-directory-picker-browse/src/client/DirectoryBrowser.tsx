@@ -38,7 +38,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline16, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16,
-  IconPlusOutline16, Modal,
+  IconPlusOutline16, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowseError } from '@deepseek-ai/dsh-client-runtime/client'
@@ -53,6 +53,10 @@ export interface DirectoryBrowserProps {
   listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
   /** Create one child directory under an existing parent. */
   createDirectory: (path: string, name: string) => Promise<string>
+  /** Optional native folder chooser contributed by a local desktop shell. */
+  pickNativeDirectory?: () => Promise<string | null>
+  /** Optional owner validation before a selected path is opened. */
+  validateDirectory?: (path: string) => Promise<boolean>
   /** The operator confirmed a directory (the selection, else the listed level). */
   onOpen: (path: string) => void
   /** Close without picking (mask, Escape, Cancel). */
@@ -259,7 +263,9 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
  * @param props - owner-controlled browser props.
  * @returns the dialog element (null while closed, via Modal).
  */
-export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen, onClose, busy, t }: DirectoryBrowserProps) {
+export function DirectoryBrowser({
+  open, listDirectory, createDirectory, pickNativeDirectory, validateDirectory, onOpen, onClose, busy, t,
+}: DirectoryBrowserProps) {
   // Miller state: the listed level, the selected row in it, and the selected
   // folder's own listing (the right column; null while nothing is selected).
   const [parent, setParent] = useState<DirectoryListing | null>(null)
@@ -283,6 +289,8 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [folderDraft, setFolderDraft] = useState<string | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [nativePicking, setNativePicking] = useState(false)
+  const [validatingDirectory, setValidatingDirectory] = useState(false)
   const requestSeq = useRef(0)
   // The in-flight listing's controller: superseding intent aborts the wire
   // request too — the Host stops scanning — instead of only discarding the
@@ -743,7 +751,34 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // The nested create dialog owns the interaction while open: Modal has no
   // focus trap, so every parent control goes inert (Shift-Tab or AT must not
   // close, adopt, or retarget underneath the child).
-  const parentInert = busy || folderDraft !== null
+  const parentInert = busy || folderDraft !== null || nativePicking || validatingDirectory
+  const openDirectory = (path: string): void => {
+    if (validateDirectory === undefined) {
+      onOpen(path)
+      return
+    }
+    setError(null)
+    setValidatingDirectory(true)
+    validateDirectory(path).then((allowed) => {
+      setValidatingDirectory(false)
+      if (allowed) onOpen(path)
+    }, (reason: unknown) => {
+      setValidatingDirectory(false)
+      setError(failureText(reason))
+    })
+  }
+  const pickFromSystem = (): void => {
+    if (pickNativeDirectory === undefined) return
+    setError(null)
+    setNativePicking(true)
+    pickNativeDirectory().then((path) => {
+      setNativePicking(false)
+      if (path !== null) openDirectory(path)
+    }, (reason: unknown) => {
+      setNativePicking(false)
+      setError(failureText(reason))
+    })
+  }
   // An uncommitted path draft makes targetPath stale relative to the header:
   // committing actions must not act on the previous selection/listing while
   // a different path is displayed.
@@ -757,7 +792,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // (its own guard keeps an in-flight creation open), and an in-flight
       // adoption pins the flow — dismissing it would leave the owner's
       // createWorkspace to land after an apparent cancel.
-      onClose={() => { if (folderDraft === null && !busy) onClose() }}
+      onClose={() => { if (!parentInert) onClose() }}
       title={t('browser.title')}
       className={clsx(css.dialog)}
       headless
@@ -963,6 +998,20 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           >
             {t('browser.newFolder')}
           </Button>
+          {pickNativeDirectory !== undefined && (
+            <Tooltip label={t('browser.nativePicker')} side="top">
+              <button
+                type="button"
+                className={css.nativePickerButton}
+                aria-label={t('browser.nativePicker')}
+                aria-busy={nativePicking || undefined}
+                disabled={parentInert}
+                onClick={pickFromSystem}
+              >
+                <IconFolderOpen16 size={16} />
+              </button>
+            </Tooltip>
+          )}
           <button
             type="button"
             className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
@@ -987,7 +1036,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             className={clsx(css.footerAction)}
             disabled={targetPath === null || loading || parentInert || draftPending}
             /* v8 ignore next -- narrowing guard: Open disables while no target exists. */
-            onClick={() => { if (targetPath !== null) onOpen(targetPath) }}
+            onClick={() => { if (targetPath !== null) openDirectory(targetPath) }}
           >
             {t('browser.open')}
           </Button>

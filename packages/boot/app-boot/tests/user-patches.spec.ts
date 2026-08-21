@@ -82,6 +82,12 @@ describe('loadOptionalPatches', () => {
       .toThrow(new RegExp(`^${NAME}: failed to parse patches `))
   })
 
+  it('treats an empty YAML document as an empty patch list', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '')
+    expect(loadOptionalPatches(NAME, join(dir, PROFILE_PATCH_FILENAME))).toEqual([])
+  })
+
   it('fails loud when the file is not a top-level array or an entry is not an object', () => {
     const dir = tmp()
     writeFileSync(join(dir, PROFILE_PATCH_FILENAME), 'id: not-a-list\n')

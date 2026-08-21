@@ -312,6 +312,20 @@ describe('mapUsage', () => {
 })
 
 describe('translate: defensive tool-call branches', () => {
+  it('does not let empty continuation fields erase an established tool call identity', async () => {
+    const chunks = await collect(translate(feed(
+      firstChunk,
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'tool', arguments: '{' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: '', function: { name: '', arguments: '}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      DONE,
+    )))
+    expect(chunks.at(-2)).toEqual({
+      type: 'block-end', index: 0,
+      block: { type: 'tool-call', id: 'call-1', name: 'tool', arguments: '{}' },
+    })
+  })
+
   it('handles deltas that never carry id or name (empty-string fallbacks)', async () => {
     const chunks = await collect(translate(feed(
       firstChunk,

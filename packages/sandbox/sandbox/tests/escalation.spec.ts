@@ -86,8 +86,14 @@ describe('approveEscalation', () => {
     const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
     await expect(approveEscalation(req({ requestedMode: 'read-only' }), spy))
       .rejects.toThrow(/not strictly wider than this call's current "read-only" mode/)
-    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
-      .rejects.toThrow(/not strictly wider/)
+    expect(seen).toEqual([])
+  })
+
+  it('reuses an already sufficient effective mode without asking for approval', async () => {
+    const seen: unknown[] = []
+    const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
+    await expect(approveEscalation(req({ effectiveMode: 'workspace-write' }), spy)).resolves.toBe('workspace-write')
+    await expect(approveEscalation(req({ effectiveMode: 'danger-full-access' }), spy)).resolves.toBe('danger-full-access')
     expect(seen).toEqual([])
   })
 

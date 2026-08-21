@@ -332,6 +332,32 @@
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 
+.nativePickerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.nativePickerButton:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.nativePickerButton:disabled {
+  color: var(--dsw-alias-label-caption);
+  cursor: default;
+  background: transparent;
+}
+
 /* Show-hidden toggle: a subtle fixed-label text button left of the gap;
  * the pressed state seats a check glyph after the label (Menu's selected
  * vocabulary; trailing so the label never shifts) instead of flipping the

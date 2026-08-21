@@ -13,6 +13,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { BrowseFlowInjected } from './flow.ts'
 import { BrowseDirectoryFlow } from './flow.ts'
 
+declare global {
+  interface Window {
+    __DSH_DESKTOP_PICK_DIRECTORY__?: () => Promise<string | null>
+    __DSH_DESKTOP_VALIDATE_DIRECTORY__?: (path: string) => Promise<boolean>
+  }
+}
+
 /** Locale namespace owning the browser dialog's copy. */
 const LOCALE_NS = 'directory-browser'
 
@@ -46,6 +53,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': '加载中…',
         'browser.truncated': '文件夹过多，仅显示开头部分。',
         'browser.showHidden': '显示隐藏文件',
+        'browser.nativePicker': '使用 Windows 选择文件夹',
       }],
       ['en', {
         'browser.title': 'Select Workspace Directory',
@@ -61,6 +69,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Loading…',
         'browser.truncated': 'Too many folders to list; only the beginning is shown.',
         'browser.showHidden': 'Show hidden files',
+        'browser.nativePicker': 'Choose with Windows',
       }],
     ]
     try {
@@ -72,11 +81,26 @@ export function apply(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'directory-picker-browse: dialog dictionaries')
 
-  const injected = (): BrowseFlowInjected => ({
-    listDirectory: (path, signal) => ctx.workspaces.listDirectory(path, signal),
-    createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
-    t: ctx.locale.bind(LOCALE_NS),
-  })
+  const injected = (): BrowseFlowInjected => {
+    const windowsDesktop = new URLSearchParams(window.location.search).get('dsh-desktop-platform') === 'win32'
+    return {
+      listDirectory: (path, signal) => ctx.workspaces.listDirectory(path, signal),
+      createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
+      ...windowsDesktop ? {
+        pickNativeDirectory: () => {
+          const pick = window.__DSH_DESKTOP_PICK_DIRECTORY__
+          if (typeof pick !== 'function') throw new Error('DSH Desktop native directory picker is unavailable')
+          return pick()
+        },
+        validateDirectory: (path: string) => {
+          const validate = window.__DSH_DESKTOP_VALIDATE_DIRECTORY__
+          if (typeof validate !== 'function') throw new Error('DSH Desktop directory validation is unavailable')
+          return validate(path)
+        },
+      } : {},
+      t: ctx.locale.bind(LOCALE_NS),
+    }
+  }
   // Both declaration lifetimes must be live before the pair installs; the
   // generator makes the two registrations one transactional effect. The
   // outer/inner nesting order is arbitrary; neither hole has precedence.

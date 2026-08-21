@@ -133,6 +133,29 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByRole('button', { name: '/' })).toBeNull()
   })
 
+  it('opens a native-picked directory only after owner validation succeeds', async () => {
+    const pickNativeDirectory = vi.fn(async () => DOCS)
+    const validateDirectory = vi.fn(async () => true)
+    const b = mount({ pickNativeDirectory, validateDirectory })
+    const native = await screen.findByRole('button', { name: 'browser.nativePicker' })
+    fireEvent.click(native)
+    await waitFor(() => { expect(b.onOpen).toHaveBeenCalledWith(DOCS) })
+    expect(pickNativeDirectory).toHaveBeenCalledOnce()
+    expect(validateDirectory).toHaveBeenCalledWith(DOCS)
+  })
+
+  it('keeps the dialog open when owner validation rejects a native-picked directory', async () => {
+    const validateDirectory = vi.fn(async () => false)
+    const b = mount({
+      pickNativeDirectory: vi.fn(async () => DOCS),
+      validateDirectory,
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'browser.nativePicker' }))
+    await waitFor(() => { expect(validateDirectory).toHaveBeenCalledWith(DOCS) })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(b.onOpen).not.toHaveBeenCalled()
+  })
+
   it('shows hidden entries when the toggle is on and hides them again on close', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
