@@ -419,6 +419,19 @@ describe('Issue lifecycle workflow', () => {
 })
 
 describe('Git hooks', () => {
+  it('does not reinstall local hooks during the pre-push typecheck', () => {
+    const lefthook = loadWorkflow('lefthook.yml')
+    const hook = lefthook['pre-push']
+    if (!isRecord(hook) || !Array.isArray(hook.jobs)) {
+      throw new TypeError('lefthook must define pre-push jobs')
+    }
+    const typecheck: unknown = hook.jobs.find(
+      (job: unknown) => isRecord(job) && job.name === 'typecheck',
+    )
+
+    expect(typecheck).toMatchObject({ env: { CI: 'true' } })
+  })
+
   it('leaves frozen Agent Note sidecars to the archive verifier', () => {
     const lefthook = loadWorkflow('lefthook.yml')
 

@@ -52,4 +52,6 @@ pre-merge-commit:
 pre-push:
   jobs:
     - name: typecheck
+      env:
+        CI: 'true'
       run: scripts/run-with-node.sh pnpm run typecheck
